@@ -1,8 +1,8 @@
 
-[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/yourusername/AsyncNetSpeed/blob/main/LICENSE)
+[![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/yourusername/AsyncSpeedTest/blob/main/LICENSE)
 
 
-AsyncNetSpeed is a Python library for performing speed tests using asynchronous programming with `aiohttp`. It allows you to measure download and upload speeds, ping, and find the best server with low latency.
+AsyncSpeedTest is a Python library for performing speed tests using asynchronous programming with `aiohttp`. It allows you to measure download and upload speeds, ping, and find the best server with low latency.
 
 ## Features
 
@@ -20,10 +20,10 @@ AsyncNetSpeed is a Python library for performing speed tests using asynchronous 
 
 ### Install via pip
 
-You can install AsyncNetSpeed via pip:
+You can install AsyncSpeedTest via pip:
 
 ```bash
-pip install aiospeedtest
+pip install asyncspeedtest
 ```
 
 ### Install from source
@@ -31,14 +31,14 @@ pip install aiospeedtest
 Clone the repository and install:
 
 ```bash
-git clone git@github.com:yourusername/AsyncNetSpeed.git
-cd AsyncNetSpeed
+git clone git@github.com:yourusername/AsyncSpeedTest.git
+cd AsyncSpeedTest
 pip install -r requirements.txt
 ```
 
 ## Usage
 
-Here's a basic example of how to use AsyncNetSpeed to perform a speed test:
+Here's a basic example of how to use AsyncSpeedTest to perform a speed test:
 
 ```python
 import asyncio
@@ -92,14 +92,14 @@ if __name__ == "__main__":
 
 ## Contributing
 
-We welcome contributions to AsyncNetSpeed! Please read our [contributing guidelines](CONTRIBUTING.md) before submitting a pull request.
+We welcome contributions to AsyncSpeedTest! Please read our [contributing guidelines](CONTRIBUTING.md) before submitting a pull request.
 
 ### Setting up Development Environment
 
 1. **Clone the repository**:
    ```bash
-   git clone git@github.com:yourusername/AsyncNetSpeed.git
-   cd AsyncNetSpeed
+   git clone git@github.com:yourusername/AsyncSpeedTest.git
+   cd AsyncSpeedTest
    ```
 
 2. **Create a virtual environment**:
