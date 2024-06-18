@@ -1,6 +1,6 @@
 
 [![GitHub license](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/yourusername/AsyncNetSpeed/blob/main/LICENSE)
-[![Build Status](https://travis-ci.com/yourusername/AsyncNetSpeed.svg?branch=main)](https://travis-ci.com/yourusername/AsyncNetSpeed)
+
 
 AsyncNetSpeed is a Python library for performing speed tests using asynchronous programming with `aiohttp`. It allows you to measure download and upload speeds, ping, and find the best server with low latency.
 
