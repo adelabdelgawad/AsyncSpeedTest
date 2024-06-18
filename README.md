@@ -1,6 +1,3 @@
-Sure! Here's a `README.md` for your project that includes nice formatting and icons to make it more appealing.
-
-```markdown
 # AsyncSpeedtest
 
 [![Python Version](https://img.shields.io/badge/python-3.7%2B-blue.svg)](https://www.python.org/downloads/release/python-370/)
@@ -96,5 +93,3 @@ This project is licensed under the MIT License. See the [LICENSE](LICENSE) file 
 - **Contributing**: Encouragement for contributions.
 - **License**: Information about the project's license.
 - **Contact**: Your GitHub profile and email for further contact.
-
-Replace `yourusername` and `tech.adel87@gmail.com` with your actual GitHub username and email address. This `README.md` will provide clear and attractive documentation for your project.
