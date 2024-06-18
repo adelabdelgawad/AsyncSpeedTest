@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  speedtest:
+    image: python:3.8-slim
+    container_name: speedtest
+    working_dir: /app
+    volumes:
+      - .:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: ["python", "speedtest_async.py"]
+    networks:
+      - speedtest_net
+
+  redis:
+    image: redis:alpine
+    container_name: redis
+    networks:
+      - speedtest_net
+
+networks:
+  speedtest_net:
+    driver: bridge
