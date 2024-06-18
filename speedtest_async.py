@@ -17,30 +17,44 @@ logger.setLevel(logging.INFO)
 
 
 class SpeedtestException(Exception):
+    """Base exception class for Speedtest."""
+
     pass
 
 
 class SpeedtestConfigError(SpeedtestException):
+    """Exception raised for errors in the Speedtest configuration."""
+
     pass
 
 
 class SpeedtestServersError(SpeedtestException):
+    """Exception raised for errors in retrieving Speedtest servers."""
+
     pass
 
 
 class SpeedtestUploadError(SpeedtestException):
+    """Exception raised for errors during upload in Speedtest."""
+
     pass
 
 
 class SpeedtestDownloadError(SpeedtestException):
+    """Exception raised for errors during download in Speedtest."""
+
     pass
 
 
-class ConfigRetrievalError(Exception):
+class ConfigRetrievalError(SpeedtestException):
+    """Exception raised for errors in retrieving the configuration."""
+
     pass
 
 
 class Speedtest:
+    """A class to perform speed tests using asynchronous programming with aiohttp."""
+
     MAX_DOWNLOAD_SIZE = 20 * 1024 * 1024  # 20 MB
     MAX_DOWNLOAD_TIME = 30  # 30 seconds
 
@@ -51,6 +65,15 @@ class Speedtest:
         secure: bool = False,
         debug: bool = False,
     ):
+        """
+        Initialize the Speedtest class.
+
+        Args:
+            source_address (Optional[str]): The source address for the connection.
+            timeout (int): Timeout for HTTP requests.
+            secure (bool): Use HTTPS for connections.
+            debug (bool): Enable debug logging.
+        """
         self.config: Dict[str, any] = {}
         self._source_address = source_address
         self._timeout = timeout
@@ -59,6 +82,7 @@ class Speedtest:
         if self._debug:
             logger.setLevel(logging.DEBUG)
         self.total_downloaded: int = 0
+        self.total_uploaded: int = 0
         self.servers: Dict[float, List[Dict[str, any]]] = {}
         self.closest: List[Dict[str, any]] = []
         self._best: Dict[str, any] = {}
@@ -70,12 +94,17 @@ class Speedtest:
             "timestamp": "",
             "bytes_received": 0,
             "bytes_sent": 0,
-            "share": None,
-            "client": {},
+            "public_ip": "0.0.0.0",
         }
         self.session: Optional[aiohttp.ClientSession] = None
 
     async def __aenter__(self):
+        """
+        Enter the asynchronous context manager.
+
+        Returns:
+            Speedtest: The Speedtest instance.
+        """
         connector = (
             aiohttp.TCPConnector(local_addr=(self._source_address, 0))
             if self._source_address
@@ -86,14 +115,24 @@ class Speedtest:
         return self
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit the asynchronous context manager and close the session."""
         if self.session:
             await self.session.close()
 
-    async def fetch(
-        self,
-        url: str,
-        headers: Optional[Dict[str, str]] = None,
-    ) -> str:
+    async def fetch(self, url: str, headers: Optional[Dict[str, str]] = None) -> str:
+        """
+        Fetch the content from the specified URL.
+
+        Args:
+            url (str): The URL to fetch content from.
+            headers (Optional[Dict[str, str]]): Optional headers for the request.
+
+        Returns:
+            str: The content of the response.
+
+        Raises:
+            ConfigRetrievalError: If fetching the content fails.
+        """
         if not self.session:
             raise RuntimeError("Session not initialized.")
         logger.debug(f"Fetching URL: {url}")
@@ -105,6 +144,15 @@ class Speedtest:
             return await response.text()
 
     async def get_config(self) -> Dict[str, any]:
+        """
+        Retrieve the Speedtest configuration.
+
+        Returns:
+            Dict[str, any]: The configuration dictionary.
+
+        Raises:
+            SpeedtestConfigError: If retrieving the configuration fails.
+        """
         url = "https://www.speedtest.net/speedtest-config.php"
         try:
             async with aiohttp.ClientSession() as session:
@@ -158,7 +206,7 @@ class Speedtest:
             )
 
             self.lat_lon = (float(client["lat"]), float(client["lon"]))
-            self.public_ip = client["ip"]
+            self.results["public_ip"] = client["ip"]
             return self.config
 
         except aiohttp.ClientConnectorError as e:
@@ -169,6 +217,12 @@ class Speedtest:
             raise SpeedtestConfigError()
 
     async def get_best_server(self) -> None:
+        """
+        Retrieve the best server based on latency.
+
+        Raises:
+            SpeedtestServersError: If retrieving servers fails.
+        """
         headers = {"Accept-Encoding": "gzip"}
         SERVERS_API_URL = "https://www.speedtest.net/api/js/servers?engine=js&limit=5&https_functional=true"
 
@@ -204,6 +258,7 @@ class Speedtest:
                     # Select the server with the lowest latency
                     best_latency, best_server = min(latencies, key=lambda x: x[0])
                     self.server = best_server
+                    self.results["server"] = best_server["host"]
                     logger.info(
                         f"Best server selected: {self.server['host']} with latency {best_latency:.2f} ms"
                     )
@@ -212,6 +267,12 @@ class Speedtest:
             raise SpeedtestServersError()
 
     async def ping(self) -> float:
+        """
+        Measure the latency (ping) to the best server.
+
+        Returns:
+            float: The measured ping in milliseconds.
+        """
         url = os.path.dirname(self.server["url"]) + "/latency.txt"
         logger.debug(f"Pinging {url}")
         try:
@@ -220,12 +281,13 @@ class Speedtest:
                 duration = time.time() - start
             ping = duration * 1000  # convert to milliseconds
             self.results["ping"] = ping
+            return ping
         except Exception as e:
             logger.error(f"Error pinging {url}: {e}")
             return 0.0
 
     async def download(self) -> float:
-        self.start_time = time.time()  # Initialize start_time here
+        start_time = time.time()
         urls = [
             f"{os.path.dirname(self.server['url'])}/random{size}x{size}.jpg"
             for size in self.config["sizes"]["download"]
@@ -239,66 +301,43 @@ class Speedtest:
                 await asyncio.gather(*tasks)
         except Exception as e:
             logger.error(f"Download failed: {e}")
-            return 0.0  # Return 0.0 to indicate failure
+            raise SpeedtestDownloadError(e)  # Raise custom download error
 
         end_time = time.time()
-        download_speed = self.calculate_download_speed(self.start_time, end_time)
+        download_speed = self._calculate_download_speed(start_time, end_time)
         self.results["download"] = download_speed
+        self.results["bytes_received"] = self.total_downloaded
+        self.results["timestamp"] = time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime())
+        return download_speed
 
     async def _download_file(self, session: aiohttp.ClientSession, url: str) -> None:
-        retries = 3
-        while retries > 0:
-            try:
-                async with session.get(url) as response:
-                    while True:
-                        chunk = await response.content.read(10240)  # 10 KB chunk size
-                        if not chunk:
-                            logger.debug(f"Download completed for {url}")
-                            break
-                        self.total_downloaded += len(chunk)
-                        logger.debug(
-                            f"Downloaded chunk of size {len(chunk)} from {url}, total downloaded: {self.total_downloaded}"
-                        )
+        try:
+            async with session.get(url) as response:
+                while True:
+                    chunk = await response.content.read(10240)
+                    if not chunk or self.total_downloaded >= self.MAX_DOWNLOAD_SIZE:
+                        break
+                    self.total_downloaded += len(chunk)
+        except Exception as e:
+            logger.error(f"Unexpected error downloading file from {url}: {e}")
+            raise SpeedtestDownloadError(e)  # Raise custom download error
 
-                        if self.total_downloaded >= self.MAX_DOWNLOAD_SIZE:
-                            logger.debug(
-                                f"Total downloaded size {self.total_downloaded} exceeded max limit of {self.MAX_DOWNLOAD_SIZE} bytes."
-                            )
-                            break
-                        if time.time() - self.start_time > self.MAX_DOWNLOAD_TIME:
-                            logger.debug(
-                                f"Download time exceeded max limit of {self.MAX_DOWNLOAD_TIME} seconds."
-                            )
-                            break
-                    return
-            except aiohttp.ClientOSError as e:
-                logger.error(f"Error downloading file from {url}: {e}")
-                retries -= 1
-                if retries == 0:
-                    logger.error(
-                        f"Failed to download file from {url} after 3 attempts."
-                    )
-                    break
-            except Exception as e:
-                logger.error(f"Unexpected error downloading file from {url}: {e}")
-                break
-
-    def calculate_download_speed(self, start_time: float, end_time: float) -> float:
+    def _calculate_download_speed(self, start_time: float, end_time: float) -> float:
         elapsed_time = end_time - start_time
-        if elapsed_time == 0:
-            logger.warning("Elapsed time is zero during download speed calculation.")
-            return 0.0
         speed_mbps = (self.total_downloaded * 8) / (elapsed_time * 1_000_000)
-        logger.debug(
-            f"Calculated download speed: {speed_mbps:.2f} Mbps over {elapsed_time:.2f} seconds."
-        )
         return float(f"{speed_mbps:.2f}")
 
     async def upload(self) -> float:
+        """
+        Measure the upload speed to the best server.
+
+        Returns:
+            float: The measured upload speed in Mbps.
+        """
         sizes = self.config["sizes"]["upload"]
 
-        start_time = time.time()
-        total_uploaded = 0
+        self.start_time = time.time()
+        self.total_uploaded = 0
 
         if not self.session:
             raise RuntimeError("Session not initialized.")
@@ -310,7 +349,7 @@ class Speedtest:
                     async with self.session.post(
                         self.server["url"], data=data
                     ) as response:
-                        total_uploaded += size
+                        self.total_uploaded += size
                     logger.debug(f"Uploaded size: {size} bytes")
                     break  # exit retry loop if successful
                 except (aiohttp.ClientPayloadError, aiohttp.ClientOSError) as e:
@@ -320,15 +359,59 @@ class Speedtest:
                     )
                     if retries == 0:
                         logger.error(f"Failed to upload to {self.server['url']}: {e}")
+                        raise SpeedtestUploadError(e)  # Raise custom upload error
                     continue
+                except Exception as e:
+                    logger.error(
+                        f"Unexpected error uploading file to {self.server['url']}: {e}"
+                    )
+                    raise SpeedtestUploadError(e)  # Raise custom upload error
 
         end_time = time.time()
-        self.results["bytes_sent"] = total_uploaded
-        self.results["upload"] = (total_uploaded * 8) / (end_time - start_time)
+        upload_speed = self._calculate_upload_speed(
+            self.total_uploaded, self.start_time, end_time
+        )
+        self.results["upload"] = upload_speed
+        self.results["bytes_sent"] = self.total_uploaded
+        return upload_speed
+
+    def _calculate_upload_speed(
+        self, total_bytes: int, start_time: float, end_time: float
+    ) -> float:
+        """
+        Calculate the speed in Mbps.
+
+        Args:
+            total_bytes (int): The total bytes transferred.
+            start_time (float): The start time of the transfer.
+            end_time (float): The end time of the transfer.
+
+        Returns:
+            float: The calculated speed in Mbps.
+        """
+        elapsed_time = end_time - start_time
+        if elapsed_time == 0:
+            logger.warning("Elapsed time is zero during speed calculation.")
+            return 0.0
+        speed_mbps = (total_bytes * 8) / (elapsed_time * 1_000_000)
+        logger.debug(
+            f"Calculated speed: {speed_mbps:.2f} Mbps over {elapsed_time:.2f} seconds."
+        )
+        return float(f"{speed_mbps:.2f}")
 
     def distance(
         self, origin: Tuple[float, float], destination: Tuple[float, float]
     ) -> float:
+        """
+        Calculate the distance between two geographical points.
+
+        Args:
+            origin (Tuple[float, float]): The latitude and longitude of the origin point.
+            destination (Tuple[float, float]): The latitude and longitude of the destination point.
+
+        Returns:
+            float: The distance in kilometers.
+        """
         lat1, lon1 = origin
         lat2, lon2 = destination
         radius = 6371  # km
@@ -346,8 +429,10 @@ class Speedtest:
 
 
 async def main() -> None:
+    """Main function to run the speed test."""
     source_address = None
     debug = False
+    speedtest = None  # Define speedtest here to ensure it's accessible in finally block
     try:
         async with Speedtest(source_address=source_address, debug=debug) as speedtest:
             print("Fetching configuration...")
@@ -366,12 +451,21 @@ async def main() -> None:
             upload = await speedtest.upload()
 
             print(
-                f"Ping: {ping:.2f} ms | Download: {download / (1024 * 1024):.2f} Mbps | Upload: {upload / (1024 * 1024):.2f} Mbps"
+                f"Ping: {ping:.2f} ms | Download: {download:.2f} Mbps | Upload: {upload:.2f} Mbps"
             )
+
+            # Include final results details
+            print(f"Public Address: {speedtest.results['public_ip']}")
+            print(f"Timestamp: {speedtest.results['timestamp']}")
+            print(f"Bytes Received: {speedtest.results['bytes_received']}")
+            print(f"Bytes Sent: {speedtest.results['bytes_sent']}")
     except Exception as e:
         print(e)
     finally:
-        print(speedtest.results)
+        if speedtest:
+            print(speedtest.results)
+        else:
+            print("Speedtest object was not created successfully.")
 
 
 if __name__ == "__main__":
