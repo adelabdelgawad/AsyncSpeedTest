@@ -15,7 +15,7 @@ class AsyncSpeedtest:
     Attributes:
         CONFIG_URL (str): URL for the speed test configuration.
         SERVER_LIST_URL (str): URL for the speed test server list.
-        DOWNLOAD_CHUNK_SIZES (List[int]): List of chunk sizes for download test.
+        DOWNLOAD_CHUNK_SIZE (int): Chunk size for download test.
         UPLOAD_CHUNK_SIZE (int): Chunk size for upload test.
         TEST_COUNT (int): Number of tests to perform.
         LATENCY_TEST_COUNT (int): Number of latency tests to perform.
@@ -30,8 +30,6 @@ class AsyncSpeedtest:
 
     CONFIG_URL = "https://www.speedtest.net/speedtest-config.php"
     SERVER_LIST_URL = "https://www.speedtest.net/speedtest-servers-static.php"
-    CONFIG_URL = "https://www.speedtest.net/speedtest-config.php"
-
     DOWNLOAD_CHUNK_SIZE = 100 * 1024
     UPLOAD_CHUNK_SIZE = 4 * 1024 * 1024
     TEST_COUNT = 10
@@ -41,6 +39,13 @@ class AsyncSpeedtest:
     def __init__(
         self, source_address: Optional[str] = None, debug: bool = False
     ) -> None:
+        """
+        Initializes the AsyncSpeedtest instance with optional source address and debug flag.
+
+        Args:
+            source_address (Optional[str]): The source address to bind to the requests.
+            debug (bool): Flag to enable debug logging.
+        """
         self.best_server: Optional[Dict[str, Any]] = None
         self.source_address: Optional[str] = source_address
         self.debug: bool = debug
@@ -84,7 +89,7 @@ class AsyncSpeedtest:
         Returns:
             bool: True if the configuration was successfully fetched, False otherwise.
         """
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=self._get_connector()) as session:
             try:
                 response: str = await self.fetch(session, self.CONFIG_URL)
                 config = re.search(
@@ -98,8 +103,7 @@ class AsyncSpeedtest:
                     return True
                 return False
             except Exception as e:
-                if self.debug:
-                    logging.debug(f"Failed to get config: {e}")
+                logging.debug(f"Failed to get config: {e}")
                 return False
 
     def calculate_distance(
@@ -119,7 +123,7 @@ class AsyncSpeedtest:
         """
         R: float = 6371  # Radius of the earth in km
         dlat: float = math.radians(lat2 - lat1)
-        dlon: float = math.radians(lon1 - lon2)
+        dlon: float = math.radians(lon2 - lon1)
         a: float = (
             math.sin(dlat / 2) ** 2
             + math.cos(math.radians(lat1))
@@ -139,7 +143,7 @@ class AsyncSpeedtest:
         Returns:
             Optional[Dict[str, Any]]: The best server's details, or None if no suitable server is found.
         """
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=self._get_connector()) as session:
             response: str = await self.fetch(session, self.SERVER_LIST_URL)
 
         servers: List[Dict[str, Any]] = []
@@ -165,7 +169,7 @@ class AsyncSpeedtest:
         user_lat: float = servers[0]["lat"]
         user_lon: float = servers[0]["lon"]
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=self._get_connector()) as session:
             for server in servers:
                 distance: float = self.calculate_distance(
                     user_lat, user_lon, server["lat"], server["lon"]
@@ -193,7 +197,6 @@ class AsyncSpeedtest:
         self.best_server = best
         if self.debug:
             logging.debug(f"Best server: {best}")
-        self.server = best
         return best
 
     async def measure_latency(self) -> None:
@@ -202,18 +205,17 @@ class AsyncSpeedtest:
         Updates the instance's ping attribute with the measured latency in milliseconds.
         """
         latencies: List[float] = []
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(connector=self._get_connector()) as session:
             for _ in range(self.LATENCY_TEST_COUNT):
                 try:
                     start: float = time.time()
-                    await self.fetch(session, self.server["url"] + "?latency")
+                    await self.fetch(session, self.best_server["url"] + "?latency")
                     latency: float = (
                         time.time() - start
                     ) * 1000  # Convert to milliseconds
                     latencies.append(latency)
                 except Exception as e:
-                    if self.debug:
-                        logging.debug(f"Latency test failed: {e}")
+                    logging.debug(f"Latency test failed: {e}")
                     latencies.append(float("inf"))
         self.ping = mean(latencies) if latencies else float("inf")
         if self.debug:
@@ -227,11 +229,6 @@ class AsyncSpeedtest:
         """
         total_data: int = 0
         start_time: float = time.time()
-        connector: Optional[aiohttp.TCPConnector] = (
-            aiohttp.TCPConnector(local_addr=(self.source_address, 0))
-            if self.source_address
-            else None
-        )
         url = self.best_server["url"]
 
         async def download_chunk(session: aiohttp.ClientSession, url: str):
@@ -248,10 +245,9 @@ class AsyncSpeedtest:
                                 f"Downloaded chunk: {len(chunk)} bytes, Total: {total_data} bytes"
                             )
             except Exception as e:
-                if self.debug:
-                    logging.debug(f"Download chunk failed: {e}")
+                logging.debug(f"Download chunk failed: {e}")
 
-        async with aiohttp.ClientSession(connector=connector) as session:
+        async with aiohttp.ClientSession(connector=self._get_connector()) as session:
             tasks = [
                 download_chunk(session, url + "/random4000x4000.jpg")
                 for _ in range(self.TEST_COUNT)
@@ -274,14 +270,9 @@ class AsyncSpeedtest:
         """
         total_data: int = 0
         data: bytes = b"0" * self.UPLOAD_CHUNK_SIZE
-        connector: Optional[aiohttp.TCPConnector] = (
-            aiohttp.TCPConnector(local_addr=(self.source_address, 0))
-            if self.source_address
-            else None
-        )
         url = self.best_server["url"]
 
-        async with aiohttp.ClientSession(connector=connector) as session:
+        async with aiohttp.ClientSession(connector=self._get_connector()) as session:
             start_time: float = time.time()
             try:
                 while time.time() - start_time < 10:
@@ -295,8 +286,7 @@ class AsyncSpeedtest:
                             f"Uploaded chunk: {self.UPLOAD_CHUNK_SIZE} bytes, Total: {total_data} bytes"
                         )
             except Exception as e:
-                if self.debug:
-                    logging.debug(f"Upload speed test {url} failed: {e}")
+                logging.debug(f"Upload speed test {url} failed: {e}")
 
         elapsed_time: float = time.time() - start_time
         self.upload = total_data / elapsed_time if elapsed_time else 0.0
@@ -305,6 +295,19 @@ class AsyncSpeedtest:
                 f"Total uploaded data: {total_data} bytes in {elapsed_time:.2f} seconds"
             )
             logging.debug(f"Upload speed: {self.upload:.2f} Bps")
+
+    def _get_connector(self) -> Optional[aiohttp.TCPConnector]:
+        """
+        Returns a TCPConnector with the specified source address.
+
+        Returns:
+            Optional[aiohttp.TCPConnector]: The TCPConnector with the source address if provided, otherwise None.
+        """
+        return (
+            aiohttp.TCPConnector(local_addr=(self.source_address, 0))
+            if self.source_address
+            else None
+        )
 
 
 async def run_speedtest() -> None:
